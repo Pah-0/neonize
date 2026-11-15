@@ -2340,6 +2340,37 @@ func UpdateGroupParticipants(id *C.char, JIDByte *C.uchar, JIDSize C.int, partic
 	return ProtoReturnV3(&return_)
 }
 
+//export UpdateGroupRequestParticipants
+func UpdateGroupRequestParticipants(id *C.char, JIDByte *C.uchar, JIDSize C.int, participantsChanges *C.uchar, participantSize C.int, action *C.char) *C.struct_BytesReturn {
+	var JID defproto.JID
+	var jidArray defproto.JIDArray
+	err := proto.Unmarshal(getByteByAddr(JIDByte, JIDSize), &JID)
+	return_ := defproto.UpdateGroupParticipantsReturnFunction{}
+	if err != nil {
+		return_.Error = proto.String(err.Error())
+		return ProtoReturnV3(&return_)
+	}
+	err_ := proto.Unmarshal(getByteByAddr(participantsChanges, participantSize), &jidArray)
+	if err_ != nil {
+		return_.Error = proto.String(err_.Error())
+		return ProtoReturnV3(&return_)
+	}
+	ParticipantChanges := make([]types.JID, len(jidArray.JIDS))
+	for i, participant := range jidArray.JIDS {
+		ParticipantChanges[i] = utils.DecodeJidProto(participant)
+	}
+	participants, err_changes := clients[C.GoString(id)].UpdateGroupRequestParticipants(context.Background(), utils.DecodeJidProto(&JID), ParticipantChanges, whatsmeow.ParticipantRequestChange(C.GoString(action)))
+	if err_changes != nil {
+		return_.Error = proto.String(err_changes.Error())
+	}
+	neonizeParticipants := make([]*defproto.GroupParticipant, len(participants))
+	for i, participant := range participants {
+		neonizeParticipants[i] = utils.EncodeGroupParticipant(participant)
+	}
+	return_.Participants = neonizeParticipants
+	return ProtoReturnV3(&return_)
+}
+
 //export GetPrivacySettings
 func GetPrivacySettings(id *C.char) *C.struct_BytesReturn {
 	settings := utils.EncodePrivacySettings(clients[C.GoString(id)].GetPrivacySettings(context.Background()))
