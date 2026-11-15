@@ -193,6 +193,7 @@ from .utils.enum import (
     MediaType,
     MediaTypeToMMS,
     ParticipantChange,
+    ParticipantRequestChange,
     Presence,
     PrivacySetting,
     PrivacySettingType,
@@ -3053,6 +3054,36 @@ class NewClient:
             raise UpdateGroupParticipantsError(model.Error)
         return model.participants
 
+
+    def update_group_request_participants(
+        self, jid: JID, participants_changes: list[JID], action: ParticipantRequestChange
+    ) -> RepeatedCompositeFieldContainer[GroupParticipant]:
+        """Approves or rejects requests to join a group.
+
+        :param jid: The JID of the group.
+        :type jid: JID
+        :param participants_changes: The JIDs of the people whose requests to answer.
+        :type participants_changes: List[JID]
+        :param action: Whether to approve or reject the requests.
+        :type action: ParticipantRequestChange
+        :raises UpdateGroupParticipantsError: Raised if the requests can't be answered.
+        :return: The participants whose requests were answered.
+        :rtype: RepeatedCompositeFieldContainer[GroupParticipant]
+        """
+        jid_proto = jid.SerializeToString()
+        jids_proto = neonize_proto.JIDArray(JIDS=participants_changes).SerializeToString()
+        protobytes = self.__client.UpdateGroupRequestParticipants(
+            self.uuid,
+            jid_proto,
+            len(jid_proto),
+            jids_proto,
+            len(jids_proto),
+            action.value.encode(),
+        )
+        model = neonize_proto.UpdateGroupParticipantsReturnFunction.FromString(protobytes)
+        if model.Error:
+            raise UpdateGroupParticipantsError(model.Error)
+        return model.Participants
     def upload_newsletter(self, data: bytes, media_type: MediaType) -> UploadResponse:
         """Uploads the newsletter to the server.
 
