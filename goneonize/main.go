@@ -18,6 +18,7 @@ import (
 	// "encoding/hex"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 	"unsafe"
@@ -124,15 +125,33 @@ func pairClientTypeFromInt(clientType int32) whatsmeow.PairClientType {
 	}
 }
 
-// Get button type
+// unwrapMessage follows view-once and ephemeral wrappers to the message inside.
+func unwrapMessage(msg *waE2E.Message) *waE2E.Message {
+	for msg != nil {
+		switch {
+		case msg.ViewOnceMessage != nil:
+			msg = msg.ViewOnceMessage.Message
+		case msg.ViewOnceMessageV2 != nil:
+			msg = msg.ViewOnceMessageV2.Message
+		case msg.ViewOnceMessageV2Extension != nil:
+			msg = msg.ViewOnceMessageV2Extension.Message
+		case msg.EphemeralMessage != nil:
+			msg = msg.EphemeralMessage.Message
+		default:
+			return msg
+		}
+	}
+	return msg
+}
+
+// Get button type, looking through view-once and ephemeral wrappers
 func getButtonTypeFromMessage(msg *waE2E.Message) string {
+	msg = unwrapMessage(msg)
 	switch {
-	case msg.ViewOnceMessage != nil:
-		return getButtonTypeFromMessage(msg.ViewOnceMessage.Message)
-	case msg.ViewOnceMessageV2 != nil:
-		return getButtonTypeFromMessage(msg.ViewOnceMessageV2.Message)
-	case msg.EphemeralMessage != nil:
-		return getButtonTypeFromMessage(msg.EphemeralMessage.Message)
+	case msg == nil:
+		return ""
+	case msg.TemplateMessage != nil && msg.TemplateMessage.GetHydratedTemplate() != nil:
+		return "template"
 	case msg.ButtonsMessage != nil:
 		return "buttons"
 	case msg.ListMessage != nil:
@@ -167,145 +186,108 @@ func shouldAddBotNode(isPrivate bool) bool {
 	}
 }
 
-// GenerateWABinary for create button
+// nativeFlowBizNode is the relay metadata WhatsApp clients expect with
+// native-flow buttons and carousels, in the form WhatsApp Web sends it (as
+// polymorfa/hypermeow does): the flow's name, the actor and storage hints, the
+// privacy-mode timestamp and the quality-control source.
+func nativeFlowBizNode(name string) waBinary.Node {
+	return waBinary.Node{
+		Tag: "biz",
+		Attrs: waBinary.Attrs{
+			"actual_actors":   "2",
+			"host_storage":    "2",
+			"privacy_mode_ts": strconv.FormatInt(time.Now().Unix(), 10),
+		},
+		Content: []waBinary.Node{
+			{
+				Tag:   "interactive",
+				Attrs: waBinary.Attrs{"type": "native_flow", "v": "1"},
+				Content: []waBinary.Node{
+					{Tag: "native_flow", Attrs: waBinary.Attrs{"name": name, "v": "9"}},
+				},
+			},
+			{Tag: "quality_control", Attrs: waBinary.Attrs{"source_type": "third_party"}},
+		},
+	}
+}
+
+// nativeFlowName is the buttons' shared name, or "mixed" when they differ.
+func nativeFlowName(buttons []*waE2E.InteractiveMessage_NativeFlowMessage_NativeFlowButton) string {
+	if len(buttons) == 0 || buttons[0].GetName() == "" {
+		return "mixed"
+	}
+	name := buttons[0].GetName()
+	for _, button := range buttons[1:] {
+		if button.GetName() != name {
+			return "mixed"
+		}
+	}
+	return name
+}
+
+// GenerateWABinary builds the extra nodes a button message needs. whatsmeow
+// itself adds the biz node for plain buttons and lists, so only native flows,
+// carousels and hydrated templates get one here (a second biz node would
+// contradict whatsmeow's).
 func GenerateWABinary(ctx context.Context, to types.JID, msg *waE2E.Message) *[]waBinary.Node {
 	isPrivate := to.Server == types.DefaultUserServer
 	nodes := make([]waBinary.Node, 0)
+	inner := unwrapMessage(msg)
 
 	switch getButtonTypeFromMessage(msg) {
 	case "interactive":
-		im := msg.InteractiveMessage
-		if im != nil {
-			if nfWrap, ok := im.InteractiveMessage.(*waE2E.InteractiveMessage_NativeFlowMessage_); ok {
-				nf := nfWrap.NativeFlowMessage
-				if nf != nil && len(nf.Buttons) > 0 {
-					for _, b := range nf.Buttons {
-						if b == nil || b.Name == nil {
-							continue
-						}
-
-						name := *b.Name
-
-						switch name {
-						case "review_and_pay", "payment_info":
-							nativeFlowName := "order_details"
-							if name == "payment_info" {
-								nativeFlowName = "payment_info"
-							}
-
-							bizNode := waBinary.Node{
-								Tag: "biz",
-								Attrs: waBinary.Attrs{
-									"native_flow_name": nativeFlowName,
-								},
-							}
-							nodes = append(nodes, bizNode)
-
-						case "mpm",
-							"cta_catalog",
-							"send_location",
-							"call_permission_request",
-							"wa_payment_transaction_details",
-							"automated_greeting_message_view_catalog":
-							bizNode := waBinary.Node{
-								Tag:   "biz",
-								Attrs: waBinary.Attrs{},
-								Content: []waBinary.Node{
-									{
-										Tag:   "interactive",
-										Attrs: waBinary.Attrs{"type": "native_flow", "v": "1"},
-										Content: []waBinary.Node{
-											{
-												Tag:   "native_flow",
-												Attrs: waBinary.Attrs{"v": "2", "name": name},
-											},
-										},
-									},
-								},
-							}
-							nodes = append(nodes, bizNode)
-
-						default:
-							bizNode := waBinary.Node{
-								Tag:   "biz",
-								Attrs: waBinary.Attrs{},
-								Content: []waBinary.Node{
-									{
-										Tag:   "interactive",
-										Attrs: waBinary.Attrs{"type": "native_flow", "v": "1"},
-										Content: []waBinary.Node{
-											{
-												Tag:   "native_flow",
-												Attrs: waBinary.Attrs{"v": "9", "name": "mixed"},
-											},
-										},
-									},
-								},
-							}
-							nodes = append(nodes, bizNode)
-						}
-
-						break
-					}
-				}
+		im := inner.GetInteractiveMessage()
+		buttons := im.GetNativeFlowMessage().GetButtons()
+		first := ""
+		if len(buttons) > 0 {
+			first = buttons[0].GetName()
+		}
+		switch {
+		case first == "review_and_pay" || first == "payment_info":
+			flow := "order_details"
+			if first == "payment_info" {
+				flow = "payment_info"
 			}
-		}
-
-		if shouldAddBotNode(isPrivate) {
-			botNode := waBinary.Node{
-				Tag:   "bot",
-				Attrs: waBinary.Attrs{"biz_bot": "1"},
-			}
-			nodes = append(nodes, botNode)
-		}
-
-	case "list":
-		bizNode := waBinary.Node{
-			Tag:   "biz",
-			Attrs: waBinary.Attrs{},
-			Content: []waBinary.Node{
-				{
-					Tag:   "list",
-					Attrs: waBinary.Attrs{"v": "2", "type": "product_list"},
-				},
-			},
-		}
-		nodes = append(nodes, bizNode)
-
-	case "buttons":
-		bizNode := waBinary.Node{
-			Tag:   "biz",
-			Attrs: waBinary.Attrs{},
-			Content: []waBinary.Node{
-				{
-					Tag:   "interactive",
-					Attrs: waBinary.Attrs{"type": "native_flow", "v": "1"},
-					Content: []waBinary.Node{
-						{
-							Tag:   "native_flow",
-							Attrs: waBinary.Attrs{"v": "9", "name": "mixed"},
+			nodes = append(nodes, waBinary.Node{
+				Tag:   "biz",
+				Attrs: waBinary.Attrs{"native_flow_name": flow},
+			})
+		case first == "mpm" || first == "cta_catalog" || first == "send_location" ||
+			first == "call_permission_request" || first == "wa_payment_transaction_details" ||
+			first == "automated_greeting_message_view_catalog":
+			nodes = append(nodes, waBinary.Node{
+				Tag:   "biz",
+				Attrs: waBinary.Attrs{},
+				Content: []waBinary.Node{
+					{
+						Tag:   "interactive",
+						Attrs: waBinary.Attrs{"type": "native_flow", "v": "1"},
+						Content: []waBinary.Node{
+							{Tag: "native_flow", Attrs: waBinary.Attrs{"v": "2", "name": first}},
 						},
 					},
 				},
-			},
-		}
-		nodes = append(nodes, bizNode)
-
-		if shouldAddBotNode(isPrivate) {
-			botNode := waBinary.Node{
-				Tag:   "bot",
-				Attrs: waBinary.Attrs{"biz_bot": "1"},
-			}
-			nodes = append(nodes, botNode)
+			})
+		case len(buttons) > 0:
+			nodes = append(nodes, nativeFlowBizNode(nativeFlowName(buttons)))
+		case im.GetCarouselMessage() != nil:
+			nodes = append(nodes, nativeFlowBizNode("mixed"))
 		}
 
-	default:
-		if shouldAddBotNode(isPrivate) {
-			botNode := waBinary.Node{
+	case "template":
+		// The format envelope only: no hsm node, which belongs to the business
+		// template publish schema and isn't sent from linked devices
+		nodes = append(nodes, waBinary.Node{Tag: "biz"})
+	}
+
+	if shouldAddBotNode(isPrivate) {
+		switch getButtonTypeFromMessage(msg) {
+		case "list", "template":
+		default:
+			nodes = append(nodes, waBinary.Node{
 				Tag:   "bot",
 				Attrs: waBinary.Attrs{"biz_bot": "1"},
-			}
-			nodes = append(nodes, botNode)
+			})
 		}
 	}
 
