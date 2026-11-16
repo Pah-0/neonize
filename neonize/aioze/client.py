@@ -3128,7 +3128,6 @@ class NewAClient:
             raise UpdateGroupParticipantsError(model.Error)
         return model.participants
 
-
     async def update_group_request_participants(
         self, jid: JID, participants_changes: list[JID], action: ParticipantRequestChange
     ) -> RepeatedCompositeFieldContainer[GroupParticipant]:
@@ -3157,7 +3156,8 @@ class NewAClient:
         model = neonize_proto.UpdateGroupParticipantsReturnFunction.FromString(protobytes)
         if model.Error:
             raise UpdateGroupParticipantsError(model.Error)
-        return model.Participants
+        return model.participants
+
     async def upload_newsletter(self, data: bytes, media_type: MediaType) -> UploadResponse:
         """Uploads the newsletter to the server.
 
