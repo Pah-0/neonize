@@ -2134,9 +2134,7 @@ class NewAClient:
             PTT=False,
             waveform=bytes([50] * 64),
         )
-        audio_msg.contextInfo.mediaDomainInfo.mediaKeyDomain = (
-            MediaKeyDomain.MEDIA_KEY_DOMAIN_E2EE
-        )
+        audio_msg.contextInfo.mediaDomainInfo.mediaKeyDomain = MediaKeyDomain.MEDIA_KEY_DOMAIN_E2EE
         audio_msg.contextInfo.mediaDomainInfo.e2EeMediaKey = upload_audio.MediaKey
 
         stk = StickerMessage()

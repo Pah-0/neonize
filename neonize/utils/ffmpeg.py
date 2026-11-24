@@ -536,16 +536,25 @@ class AFFmpeg:
                 [
                     "ffmpeg",
                     "-y",
-                    "-i", self.filepath,
-                    "-t", str(duration),
-                    "-vn",                  # drop any cover art / video stream
-                    "-map_metadata", "-1",  # strip tags
-                    "-c:a", "libopus",
-                    "-b:a", "64k",
-                    "-ar", "48000",         # Opus native rate
-                    "-ac", "1",             # mono, like voice notes
-                    "-application", "voip",
-                    "-f", "ogg",
+                    "-i",
+                    self.filepath,
+                    "-t",
+                    str(duration),
+                    "-vn",  # drop any cover art / video stream
+                    "-map_metadata",
+                    "-1",  # strip tags
+                    "-c:a",
+                    "libopus",
+                    "-b:a",
+                    "64k",
+                    "-ar",
+                    "48000",  # Opus native rate
+                    "-ac",
+                    "1",  # mono, like voice notes
+                    "-application",
+                    "voip",
+                    "-f",
+                    "ogg",
                     temp,
                 ]
             )
@@ -917,16 +926,25 @@ class FFmpeg:
             [
                 "ffmpeg",
                 "-y",
-                "-i", self.filepath,
-                "-t", str(duration),
-                "-vn",                  # drop any cover art / video stream
-                "-map_metadata", "-1",  # strip tags
-                "-c:a", "libopus",
-                "-b:a", "64k",
-                "-ar", "48000",         # Opus native rate
-                "-ac", "1",             # mono, like voice notes
-                "-application", "voip",
-                "-f", "ogg",
+                "-i",
+                self.filepath,
+                "-t",
+                str(duration),
+                "-vn",  # drop any cover art / video stream
+                "-map_metadata",
+                "-1",  # strip tags
+                "-c:a",
+                "libopus",
+                "-b:a",
+                "64k",
+                "-ar",
+                "48000",  # Opus native rate
+                "-ac",
+                "1",  # mono, like voice notes
+                "-application",
+                "voip",
+                "-f",
+                "ogg",
                 temp,
             ]
         )
