@@ -25,10 +25,12 @@ jobs:
         uses: astral-sh/ruff-action@v3
         with:
           args: "check"
+          src: "./neonize"
       - name: Ruff format check
         uses: astral-sh/ruff-action@v3
         with:
           args: "format --check"
+          src: "./neonize"
       - name: neonize and goneonize versions match
         run: python3 tools/check_versions.py
 
