@@ -525,6 +525,45 @@ class AFFmpeg:
             ]
         )
 
+    async def trim_audio(self, duration: int) -> bytes:
+        """
+        Trim audio to the given duration and encode as Ogg/Opus
+        (the format WhatsApp uses for audio messages).
+        """
+        temp = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.ogg")
+        try:
+            await self.call(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    self.filepath,
+                    "-t",
+                    str(duration),
+                    "-vn",  # drop any cover art / video stream
+                    "-map_metadata",
+                    "-1",  # strip tags
+                    "-c:a",
+                    "libopus",
+                    "-b:a",
+                    "64k",
+                    "-ar",
+                    "48000",  # Opus native rate
+                    "-ac",
+                    "1",  # mono, like voice notes
+                    "-application",
+                    "voip",
+                    "-f",
+                    "ogg",
+                    temp,
+                ]
+            )
+            with open(temp, "rb") as file:
+                return file.read()
+        finally:
+            if os.path.exists(temp):
+                os.remove(temp)
+
     async def extract_info(self) -> FFProbeInfo:
         """
         Extracts media file information using ffprobe tool.
@@ -872,6 +911,50 @@ class FFmpeg:
                 "-",
             ]
         )
+
+    def trim_audio(self, duration: int) -> bytes:
+        """
+        Trim audio to specified duration in seconds.
+
+        :param duration: Duration in seconds to trim to.
+        :type duration: int
+        :return: Trimmed audio bytes in original format.
+        :rtype: bytes
+        """
+        temp = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.mp3")
+        self.call(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                self.filepath,
+                "-t",
+                str(duration),
+                "-vn",  # drop any cover art / video stream
+                "-map_metadata",
+                "-1",  # strip tags
+                "-c:a",
+                "libopus",
+                "-b:a",
+                "64k",
+                "-ar",
+                "48000",  # Opus native rate
+                "-ac",
+                "1",  # mono, like voice notes
+                "-application",
+                "voip",
+                "-f",
+                "ogg",
+                temp,
+            ]
+        )
+        try:
+            with open(temp, "rb") as file:
+                buf = file.read()
+        finally:
+            if os.path.exists(temp):
+                os.remove(temp)
+        return buf
 
     def extract_info(self) -> FFProbeInfo:
         """
