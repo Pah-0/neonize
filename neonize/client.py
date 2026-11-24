@@ -158,6 +158,7 @@ from .proto.waE2E.WAWebProtobufsE2E_pb2 import (
     ContextInfo,
     DocumentMessage,
     ExtendedTextMessage,
+    FutureProofMessage,
     GroupMention,
     ImageMessage,
     Message,
@@ -2007,6 +2008,192 @@ class NewClient:
         return self.send_message(
             to,
             self.build_audio_message(file, ptt, quoted),
+            add_msg_secret=add_msg_secret,
+        )
+
+    def build_audio_sticker_message(
+        self,
+        file: str | bytes,
+        audio: str | bytes,
+        quoted: neonize_proto.Message | None = None,
+        name: str = "",
+        packname: str = "",
+        crop: bool = False,
+        enforce_not_broken: bool = False,
+        animated_gif: bool = False,
+        quality: int = 75,
+        compression_level: int = 4,
+        passthrough: bool = False,
+    ) -> Message:
+        """
+        Builds an audio sticker message from a given image/audio file or bytes.
+
+        The function first builds a sticker message from the ``file`` parameter
+        (the image), then builds an audio message from the ``audio`` parameter
+        (the audio file). The audio is truncated to 5 seconds if animated or
+        10 seconds if static. The resulting StickerMessage wraps an AudioMessage
+        in its ``oneof audio`` field, and the whole thing is wrapped in an
+        ``audioStickerMessage`` (FutureProofMessage).
+
+        :param file: The image file path, URL, or binary data for the sticker.
+        :type file: str | bytes
+        :param audio: The audio file path, URL, or binary data for the audio message.
+        :type audio: str | bytes
+        :param quoted: A message that the audio sticker is a reply to, defaults to None.
+        :type quoted: Optional[neonize_proto.Message], optional
+        :param name: The name of the sticker, defaults to "".
+        :type name: str, optional
+        :param packname: The name of the sticker pack, defaults to "".
+        :type packname: str, optional
+        :param crop: Crop-center the image, defaults to False.
+        :type crop: bool, optional
+        :param enforce_not_broken: Enforce non-broken stickers by constraining sticker size to WA limits, defaults to False.
+        :type enforce_not_broken: bool, optional
+        :param animated_gif: Ensure transparent media are properly processed, defaults to False.
+        :type animated_gif: bool, optional
+        :param quality: Directly set sticker quality, ranges from 0-100, defaults to 75.
+        :type quality: int, optional
+        :param compression_level: Directly set sticker processor compression_level, ranges from 1-6, defaults to 4.
+        :type compression_level: int, optional
+        :param passthrough: Don't process sticker, send as is, defaults to False.
+        :type passthrough: bool, optional
+        :return: The constructed audio sticker message.
+        :rtype: Message
+        """
+        # Build the sticker message first
+        sticker_message = self.build_sticker_message(
+            file,
+            quoted,
+            name,
+            packname,
+            crop,
+            enforce_not_broken,
+            animated_gif,
+            quality,
+            compression_level,
+            passthrough,
+        )
+        is_animated = sticker_message.stickerMessage.isAnimated
+        max_seconds = 5 if is_animated else 10
+
+        # Build the audio message and truncate it
+        audio_io = BytesIO(get_bytes_from_name_or_url(audio))
+        audio_io.seek(0)
+        audio_buff = audio_io.read()
+        with FFmpeg(audio_buff) as ffmpeg:
+            trimmed_audio = ffmpeg.trim_audio(max_seconds)
+        upload_audio = self.upload(trimmed_audio)
+        audio_msg = AudioMessage(
+            URL=upload_audio.url,
+            seconds=max_seconds,
+            directPath=upload_audio.DirectPath,
+            fileEncSHA256=upload_audio.FileEncSHA256,
+            fileLength=upload_audio.FileLength,
+            fileSHA256=upload_audio.FileSHA256,
+            mediaKey=upload_audio.MediaKey,
+            mimetype=magic.from_buffer(trimmed_audio, mime=True),
+            PTT=False,
+        )
+        if quoted:
+            audio_msg.contextInfo.MergeFrom(self._make_quoted_message(quoted))
+
+        # Create a new StickerMessage that combines sticker fields + audioMessage
+        stk = StickerMessage(
+            URL=sticker_message.stickerMessage.URL,
+            directPath=sticker_message.stickerMessage.directPath,
+            fileEncSHA256=sticker_message.stickerMessage.fileEncSHA256,
+            fileLength=sticker_message.stickerMessage.fileLength,
+            fileSHA256=sticker_message.stickerMessage.fileSHA256,
+            mediaKey=sticker_message.stickerMessage.mediaKey,
+            mimetype=sticker_message.stickerMessage.mimetype,
+            isAnimated=sticker_message.stickerMessage.isAnimated,
+            audioMessage=audio_msg,
+        )
+
+        # Wrap in audioStickerMessage (FutureProofMessage -> Message)
+        message = Message(
+            audioStickerMessage=FutureProofMessage(
+                message=Message(
+                    stickerMessage=stk,
+                )
+            )
+        )
+        if quoted:
+            message.audioStickerMessage.message.stickerMessage.contextInfo.MergeFrom(
+                self._make_quoted_message(quoted)
+            )
+        return message
+
+    def send_audio_sticker(
+        self,
+        to: JID,
+        file: str | bytes,
+        audio: str | bytes,
+        quoted: neonize_proto.Message | None = None,
+        name: str = "",
+        packname: str = "",
+        crop: bool = False,
+        enforce_not_broken: bool = False,
+        animated_gif: bool = False,
+        quality: int = 75,
+        compression_level: int = 4,
+        passthrough: bool = False,
+        add_msg_secret: bool = False,
+    ) -> SendResponse:
+        """
+        Send an audio sticker to a specific JID.
+
+        The function first builds a sticker message from the ``file`` parameter
+        (the image), then builds an audio message from the ``audio`` parameter
+        (the audio file). The audio is truncated to 5 seconds if animated or
+        10 seconds if static. The resulting StickerMessage wraps an AudioMessage
+        in its ``oneof audio`` field, and the whole thing is wrapped in an
+        ``audioStickerMessage`` (FutureProofMessage).
+
+        :param to: The JID to send the audio sticker to.
+        :type to: JID
+        :param file: The file path of the sticker or the sticker data in bytes.
+        :type file: str | bytes
+        :param audio: The audio file path, URL, or binary data.
+        :type audio: str | bytes
+        :param quoted: The quoted message, if any, defaults to None.
+        :type quoted: Optional[neonize_proto.Message], optional
+        :param name: The name of the sticker, defaults to "".
+        :type name: str, optional
+        :param packname: The name of the sticker pack, defaults to "".
+        :type packname: str, optional
+        :param crop: Whether to crop-center the image, defaults to False.
+        :type crop: bool, optional
+        :param enforce_not_broken: Whether to enforce non-broken stickers by constraining sticker size to WA limits, defaults to False.
+        :type enforce_not_broken: bool, optional
+        :param animated_gif: Ensure transparent media are properly processed, defaults to False.
+        :type animated_gif: bool, optional
+        :param quality: Directly set sticker quality, ranges from 0-100, defaults to 75.
+        :type quality: int, optional
+        :param compression_level: Directly set sticker processor compression_level, ranges from 1-6, defaults to 4.
+        :type compression_level: int, optional
+        :param passthrough: Don't process sticker, send as is, defaults to False.
+        :type passthrough: bool, optional
+        :param add_msg_secret: Whether to generate 32 random bytes for messageSecret inside MessageContextInfo before sending, defaults to False.
+        :type add_msg_secret: bool, optional
+        :return: The response from the send message function.
+        :rtype: SendResponse
+        """
+        return self.send_message(
+            to,
+            self.build_audio_sticker_message(
+                file,
+                audio,
+                quoted,
+                name,
+                packname,
+                crop,
+                enforce_not_broken,
+                animated_gif,
+                quality,
+                compression_level,
+                passthrough,
+            ),
             add_msg_secret=add_msg_secret,
         )
 
