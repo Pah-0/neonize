@@ -161,6 +161,7 @@ from .proto.waE2E.WAWebProtobufsE2E_pb2 import (
     FutureProofMessage,
     GroupMention,
     ImageMessage,
+    MediaKeyDomain,
     Message,
     MessageAssociation,
     PollVoteMessage,
@@ -2063,7 +2064,7 @@ class NewClient:
         # Build the sticker message first
         sticker_message = self.build_sticker_message(
             file,
-            quoted,
+            None,
             name,
             packname,
             crop,
@@ -2076,13 +2077,16 @@ class NewClient:
         is_animated = sticker_message.stickerMessage.isAnimated
         max_seconds = 5 if is_animated else 10
 
-        # Build the audio message and truncate it
+        now = int(time.time())
+
+        # Trim the audio
         audio_io = BytesIO(get_bytes_from_name_or_url(audio))
         audio_io.seek(0)
         audio_buff = audio_io.read()
         with FFmpeg(audio_buff) as ffmpeg:
             trimmed_audio = ffmpeg.trim_audio(max_seconds)
         upload_audio = self.upload(trimmed_audio)
+
         audio_msg = AudioMessage(
             URL=upload_audio.url,
             seconds=max_seconds,
@@ -2091,26 +2095,33 @@ class NewClient:
             fileLength=upload_audio.FileLength,
             fileSHA256=upload_audio.FileSHA256,
             mediaKey=upload_audio.MediaKey,
-            mimetype=magic.from_buffer(trimmed_audio, mime=True),
+            mediaKeyTimestamp=now,
+            mimetype="audio/ogg; codecs=opus",
             PTT=False,
+            waveform=bytes([50] * 64),
         )
+        audio_msg.contextInfo.mediaDomainInfo.mediaKeyDomain = (
+            MediaKeyDomain.MEDIA_KEY_DOMAIN_E2EE
+        )
+        audio_msg.contextInfo.mediaDomainInfo.e2EeMediaKey = upload_audio.MediaKey
+
+        stk = StickerMessage()
+        stk.CopyFrom(sticker_message.stickerMessage)
+        stk.width = 512
+        stk.height = 512
+        stk.mediaKeyTimestamp = now
+        stk.stickerSentTS = now * 1000
+        stk.isAvatar = False
+        stk.isAiSticker = False
+        stk.isLottie = False
+        stk.premium = 0
+        stk.contextInfo.mediaDomainInfo.mediaKeyDomain = MediaKeyDomain.MEDIA_KEY_DOMAIN_E2EE
+        stk.contextInfo.mediaDomainInfo.e2EeMediaKey = sticker_message.stickerMessage.mediaKey
+        stk.audioMessage.CopyFrom(audio_msg)
+
         if quoted:
-            audio_msg.contextInfo.MergeFrom(self._make_quoted_message(quoted))
+            stk.contextInfo.MergeFrom(self._make_quoted_message(quoted))
 
-        # Create a new StickerMessage that combines sticker fields + audioMessage
-        stk = StickerMessage(
-            URL=sticker_message.stickerMessage.URL,
-            directPath=sticker_message.stickerMessage.directPath,
-            fileEncSHA256=sticker_message.stickerMessage.fileEncSHA256,
-            fileLength=sticker_message.stickerMessage.fileLength,
-            fileSHA256=sticker_message.stickerMessage.fileSHA256,
-            mediaKey=sticker_message.stickerMessage.mediaKey,
-            mimetype=sticker_message.stickerMessage.mimetype,
-            isAnimated=sticker_message.stickerMessage.isAnimated,
-            audioMessage=audio_msg,
-        )
-
-        # Wrap in audioStickerMessage (FutureProofMessage -> Message)
         message = Message(
             audioStickerMessage=FutureProofMessage(
                 message=Message(
@@ -2118,10 +2129,6 @@ class NewClient:
                 )
             )
         )
-        if quoted:
-            message.audioStickerMessage.message.stickerMessage.contextInfo.MergeFrom(
-                self._make_quoted_message(quoted)
-            )
         return message
 
     def send_audio_sticker(
