@@ -1182,7 +1182,7 @@ class FFmpeg:
                 "-i",
                 self.filepath,
                 "-t",
-                str(duration),
+                f"{duration:.3f}",
                 "-vn",  # drop any cover art / video stream
                 "-map_metadata",
                 "-1",  # strip tags
