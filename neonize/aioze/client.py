@@ -1161,6 +1161,8 @@ class NewAClient:
         animated_gif: bool = False,
         quality: int = 75,
         compression_level: int = 4,
+        enforce_full_duration: bool = False,
+        min_quality: int = 30,
         passthrough: bool = False,
     ) -> Message:
         """
@@ -1228,6 +1230,8 @@ class NewAClient:
                 is_webm,
                 quality,
                 compression_level,
+                enforce_full_duration,
+                min_quality,
             )
             if saved_exif:
                 io_save = BytesIO(sticker)
@@ -1278,6 +1282,8 @@ class NewAClient:
         animated_gif: bool = False,
         quality: int = 75,
         compression_level: int = 4,
+        enforce_full_duration: bool = False,
+        min_quality: int = 30,
         passthrough: bool = False,
         add_msg_secret: bool = False,
     ) -> SendResponse:
@@ -2058,6 +2064,8 @@ class NewAClient:
         animated_gif: bool = False,
         quality: int = 75,
         compression_level: int = 4,
+        enforce_full_duration: bool = False,
+        min_quality: int = 30,
         passthrough: bool = False,
     ) -> Message:
         """
@@ -2106,10 +2114,12 @@ class NewAClient:
             animated_gif,
             quality,
             compression_level,
+            enforce_full_duration,
+            min_quality,
             passthrough,
         )
         sm = sticker_message.stickerMessage
-        max_seconds = 5 if sm.isAnimated else 10
+        max_seconds = 6 if sm.isAnimated else 10
         now = int(time.time())
 
         audio_bytes = await get_bytes_from_name_or_url_async(audio)
@@ -2166,6 +2176,8 @@ class NewAClient:
         animated_gif: bool = False,
         quality: int = 75,
         compression_level: int = 4,
+        enforce_full_duration: bool = True,
+        min_quality: int = 30,
         passthrough: bool = False,
         add_msg_secret: bool = False,
     ) -> SendResponse:
@@ -2221,6 +2233,8 @@ class NewAClient:
                 animated_gif,
                 quality,
                 compression_level,
+                enforce_full_duration,
+                min_quality,
                 passthrough,
             ),
             add_msg_secret=add_msg_secret,
