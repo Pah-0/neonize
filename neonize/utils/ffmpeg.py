@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 from .iofile import (
@@ -721,6 +721,34 @@ class AFFmpeg:
         peak = max(rms) or 1
         return bytes(int(r / peak * 100) for r in rms), seconds
 
+    @staticmethod
+    def _webp_duration(path: str) -> float:
+        total_ms = 0
+        try:
+            with open(path, "rb") as f:
+                head = f.read(12)
+                if len(head) < 12 or head[:4] != b"RIFF" or head[8:12] != b"WEBP":
+                    return 0.0
+                while True:
+                    hdr = f.read(8)
+                    if len(hdr) < 8:
+                        break
+                    tag = hdr[:4]
+                    size = int.from_bytes(hdr[4:], "little")
+                    pad = size & 1
+                    if tag == b"ANMF" and size >= 15:
+                        f.seek(12, 1)
+                        frame_ms = int.from_bytes(f.read(3), "little")
+                        if frame_ms == 0:
+                            frame_ms = 100
+                        total_ms += frame_ms
+                        f.seek(size - 15 + pad, 1)
+                    else:
+                        f.seek(size + pad, 1)
+        except OSError:
+            return 0.0
+        return total_ms / 1000
+
     async def extract_info(self) -> FFProbeInfo:
         """
         Extracts media file information using ffprobe tool.
@@ -747,10 +775,19 @@ class AFFmpeg:
         )
         streams: list[dict] = data["streams"]
         format: dict = data["format"]
+        fmt = Format(
+            **{i: format.get(i, None) for i, _ in Format.__dataclass_fields__.items()}
+        )
+        try:
+            has_duration = float(fmt.duration or 0) > 0
+        except (TypeError, ValueError):
+            has_duration = False
+        if not has_duration:
+            webp_seconds = self._webp_duration(self.filepath)
+            if webp_seconds > 0:
+                fmt = replace(fmt, duration=webp_seconds)
         return FFProbeInfo(
-            format=Format(
-                **{i: format.get(i, None) for i, _ in Format.__dataclass_fields__.items()}
-            ),
+            format=fmt,
             streams=[
                 Stream(
                     **{
@@ -1253,6 +1290,34 @@ class FFmpeg:
         peak = max(rms) or 1
         return bytes(int(r / peak * 100) for r in rms), seconds
 
+    @staticmethod
+    def _webp_duration(path: str) -> float:
+        total_ms = 0
+        try:
+            with open(path, "rb") as f:
+                head = f.read(12)
+                if len(head) < 12 or head[:4] != b"RIFF" or head[8:12] != b"WEBP":
+                    return 0.0
+                while True:
+                    hdr = f.read(8)
+                    if len(hdr) < 8:
+                        break
+                    tag = hdr[:4]
+                    size = int.from_bytes(hdr[4:], "little")
+                    pad = size & 1
+                    if tag == b"ANMF" and size >= 15:
+                        f.seek(12, 1)
+                        frame_ms = int.from_bytes(f.read(3), "little")
+                        if frame_ms == 0:
+                            frame_ms = 100
+                        total_ms += frame_ms
+                        f.seek(size - 15 + pad, 1)
+                    else:
+                        f.seek(size + pad, 1)
+        except OSError:
+            return 0.0
+        return total_ms / 1000
+
     def extract_info(self) -> FFProbeInfo:
         """
         Extracts media file information using ffprobe tool.
@@ -1279,10 +1344,19 @@ class FFmpeg:
         )
         streams: list[dict] = data["streams"]
         format: dict = data["format"]
+        fmt = Format(
+            **{i: format.get(i, None) for i, _ in Format.__dataclass_fields__.items()}
+        )
+        try:
+            has_duration = float(fmt.duration or 0) > 0
+        except (TypeError, ValueError):
+            has_duration = False
+        if not has_duration:
+            webp_seconds = self._webp_duration(self.filepath)
+            if webp_seconds > 0:
+                fmt = replace(fmt, duration=webp_seconds)
         return FFProbeInfo(
-            format=Format(
-                **{i: format.get(i, None) for i, _ in Format.__dataclass_fields__.items()}
-            ),
+            format=fmt,
             streams=[
                 Stream(
                     **{
