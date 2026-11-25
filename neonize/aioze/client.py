@@ -1189,6 +1189,16 @@ class NewAClient:
         :type quality: int, optional
         :param compression_level: Directly set sticker processor compression_level, ranges from 1-6, defaults to 4
         :type compression_level: int, optional
+        :param enforce_full_duration: Keep the full sticker duration by lowering
+            quality, fps and scale instead of cutting the animation, defaults to False.
+        :type enforce_full_duration: bool, optional
+        :param min_quality: Lowest quality tried by ``enforce_full_duration``,
+            defaults to 30.
+        :type min_quality: int, optional
+        :param trim: Only use the first ``trim`` seconds of the sticker source
+            (clamped to the maximum). 0 means no trim. Ignored when ``passthrough``
+            is set, defaults to 0.
+        :type trim: float, optional
         :param passthrough: Don't process sticker, send as is, defaults to False.
         :type passthrough: bool, optional
         :return: The constructed sticker message
@@ -1313,6 +1323,16 @@ class NewAClient:
         :type quality: int, optional
         :param compression_level: Directly set sticker processor compression_level, ranges from 1-6, defaults to 4
         :type compression_level: int, optional
+        :param enforce_full_duration: Keep the full sticker duration by lowering
+            quality, fps and scale instead of cutting the animation, defaults to False.
+        :type enforce_full_duration: bool, optional
+        :param min_quality: Lowest quality tried by ``enforce_full_duration``,
+            defaults to 30.
+        :type min_quality: int, optional
+        :param trim: Only use the first ``trim`` seconds of the sticker source
+            (clamped to the maximum). 0 means no trim. Ignored when ``passthrough``
+            is set, defaults to 0.
+        :type trim: float, optional
         :param passthrough: Don't process sticker, send as is, defaults to False.
         :type passthrough: bool, optional
         :param add_msg_secret: Whether to generate 32 random bytes for messageSecret inside MessageContextInfo before sending, defaults to False

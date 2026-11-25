@@ -806,88 +806,184 @@ class FFmpeg:
         enforce_not_broken: bool = False,
         animated_gif: bool = False,
         max_sticker_size: int = 0,
-        is_webm=False,
-        quality=75,
-        compression_level=4,
+        is_webm: bool = False,
+        quality: int = 75,
+        compression_level: int = 4,
+        enforce_full_duration: bool = False,
+        min_quality: int = 30,
+        trim: float = 0,
     ) -> bytes:
         """
-        This function converts a given file to webp format using ffmpeg.
-        If the animated flag is set to True, it will only convert the first 6 seconds of the file.
+        Converts the input media to a 512x512 webp sticker using ffmpeg.
 
-        :param animated: If True, only the first 6 seconds of the file will be converted, defaults to True
+        Animated output is limited to 10 seconds. Longer sources are cut to 10
+        seconds, and shorter sources are kept whole unless ``trim`` says otherwise.
+
+        Size handling has three modes:
+
+        * Default (both flags False): a single encode at ``quality``. The result may
+        exceed the WhatsApp size limit.
+        * ``enforce_not_broken=True``: a single encode where ffmpeg stops writing at
+        the size limit (``-fs``). The file is always small enough, but animations
+        can be cut off before the end.
+        * ``enforce_full_duration=True``: never lets ffmpeg truncate the file. It
+        encodes the full allowed duration (after ``trim``, if set) and shrinks the
+        file to fit by lowering quality (down to ``min_quality``), then fps, then
+        content scale. If no combination fits, it falls back to the
+        ``enforce_not_broken`` behaviour (size-limited, possibly truncated) by
+        calling itself with ``enforce_full_duration=False`` and
+        ``enforce_not_broken=True``. Takes precedence over ``enforce_not_broken``.
+
+        :param animated: If True, only the first 10 seconds of the input are converted.
+            Forced to False for sources shorter than 10 seconds (unless
+            ``enforce_full_duration`` is set and the source is long enough to trim),
+            defaults to True.
         :type animated: bool, optional
-        :param enforce_not_broken: Enforce non-broken stickers by constraining sticker size to WA limits, defaults to False
+        :param enforce_not_broken: Constrain the output to the size limit by letting
+            ffmpeg stop at ``max_sticker_size`` bytes. May truncate animations,
+            defaults to False.
         :type enforce_not_broken: bool, optional
-        :return: The converted file in bytes
+        :param animated_gif: Use the ``libwebp_anim`` encoder so transparent or GIF-like
+            media is processed properly, defaults to False.
+        :type animated_gif: bool, optional
+        :param max_sticker_size: Maximum output size in bytes. 0 means the default
+            of 512000 (500 KB), defaults to 0.
+        :type max_sticker_size: int, optional
+        :param is_webm: The input is a webm file. Selects the libvpx or libvpx-vp9
+            decoder based on the stream codec so transparency is preserved,
+            defaults to False.
+        :type is_webm: bool, optional
+        :param quality: Starting webp quality (``-q:v``), 0-100. Used by
+            ``enforce_not_broken`` and ``enforce_full_duration``, defaults to 75.
+        :type quality: int, optional
+        :param compression_level: webp compression level, 1-6. Higher is smaller but
+            slower, defaults to 4.
+        :type compression_level: int, optional
+        :param enforce_full_duration: Keep the full allowed duration (10 seconds, or
+            the whole clip if it is shorter, or ``trim`` if set) by reducing quality,
+            fps and scale instead of cutting the animation. See above for the
+            fallback, defaults to False.
+        :type enforce_full_duration: bool, optional
+        :param min_quality: Lowest quality tried before fps and scale are reduced.
+            Only used with ``enforce_full_duration``. If it is higher than
+            ``quality``, ``quality`` is used instead, defaults to 30.
+        :type min_quality: int, optional
+        :param trim: Only convert the first ``trim`` seconds of the input. Values
+            above the 10 second maximum are clamped to 10. Ignored if it is not
+            shorter than the source. 0 (or a negative value) means no trim,
+            defaults to 0.
+        :type trim: float, optional
+        :return: The converted webp file as bytes.
         :rtype: bytes
         """
         MAX_STICKER_FILESIZE = max_sticker_size or 512000
-        temp = tempfile.gettempdir() + "/" + uuid.uuid4().__str__() + ".webp"
-        duration = int((self.extract_info()).format.duration or 0)
-        if not duration:
-            duration = 1
-        if duration > 6 and animated:
-            duration = 6
-        elif duration < 6:
+        MAX_SECONDS = 10
+        requested_animated = animated
+        trim_seconds = min(trim, MAX_SECONDS) if trim > 0 else 0
+
+        info = self.extract_info()
+        source_duration = float(info.format.duration or 0)
+        duration = int(source_duration) or 1
+        if duration > MAX_SECONDS and animated:
+            duration = MAX_SECONDS
+        elif duration < MAX_SECONDS:
             animated = False
-        ffmpeg_command = ["ffmpeg"]
+        if enforce_full_duration and source_duration > MAX_SECONDS:
+            animated = True
+            duration = MAX_SECONDS
+
+        clip_seconds = MAX_SECONDS
+        if trim_seconds and (not source_duration or trim_seconds < source_duration):
+            animated = True
+            clip_seconds = trim_seconds
+            duration = max(1, int(trim_seconds))
+
+        decoder = []
         if is_webm:
-            decoder = "-c:v libvpx"
-            codec = (self.extract_info()).streams[0].codec_name
-            if codec == "vp9":
-                decoder += "-vp9"
-            ffmpeg_command.extend(decoder.split())
-        ffmpeg_command.extend(
-            [
-                "-i",
-                self.filepath,
-            ]
-        )
-        if animated:
-            ffmpeg_command.extend(
-                [
-                    "-ss",
-                    "00:00:00.0",
-                    "-t",
-                    "00:00:06.0",
-                ]
-            )
-        ffmpeg_command.extend(
-            [
+            codec = info.streams[0].codec_name
+            decoder = ["-c:v", "libvpx-vp9" if codec == "vp9" else "libvpx"]
+
+        def build_cmd(out, q, fps, size, limit):
+            cmd = ["ffmpeg", *decoder, "-i", self.filepath]
+            if animated:
+                cmd += ["-ss", "00:00:00.0", "-t", f"{clip_seconds:g}"]
+            cmd += [
                 "-vcodec",
                 "libwebp_anim" if animated_gif else "libwebp",
                 "-vf",
                 (
-                    "scale='if(gt(iw,ih),512,-1)':'if(gt(iw,ih),-1,512)',fps=15, "
+                    f"scale='if(gt(iw,ih),{size},-1)':'if(gt(iw,ih),-1,{size})',fps={fps}, "
                     "pad=512:512:-1:-1:color=white@0.0, split [a][b]; [a] "
                     "palettegen=reserve_transparent=on:transparency_color=ffffff [p]; [b][p] paletteuse"
                 ),
             ]
-        )
-        if enforce_not_broken:
-            bitrate = f"{MAX_STICKER_FILESIZE // duration}k"
-            ffmpeg_command.extend(
-                [
+            if limit or enforce_full_duration:
+                cmd += [
                     "-loop",
                     "0",
                     "-preset",
                     "picture",
-                    "-fs",
-                    f"{MAX_STICKER_FILESIZE}",
-                    "-b:v",
-                    bitrate,
                     "-q:v",
-                    str(quality),
+                    str(q),
                     "-compression_level",
                     str(compression_level),
                 ]
-            )
-        ffmpeg_command.append(temp)
-        self.call(ffmpeg_command)
-        with open(temp, "rb") as file:
-            buf = file.read()
-        os.remove(temp)
-        return buf
+            if limit:
+                cmd += [
+                    "-fs",
+                    str(MAX_STICKER_FILESIZE),
+                    "-b:v",
+                    f"{MAX_STICKER_FILESIZE // duration}k",
+                ]
+            cmd.append(out)
+            return cmd
+
+        def encode(q, fps, size, limit=False):
+            temp = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.webp")
+            try:
+                self.call(build_cmd(temp, q, fps, size, limit))
+                with open(temp, "rb") as file:
+                    return file.read()
+            finally:
+                if os.path.exists(temp):
+                    os.remove(temp)
+
+        if not enforce_full_duration:
+            return encode(quality, 15, 512, limit=enforce_not_broken)
+
+        ladder = [(15, 512), (12, 512), (10, 512), (10, 448), (8, 384)]
+        min_q = min(min_quality, quality)
+
+        for fps, size in ladder:
+            buf = encode(quality, fps, size)
+            if len(buf) <= MAX_STICKER_FILESIZE:
+                return buf
+
+            floor = encode(min_q, fps, size)
+            if len(floor) > MAX_STICKER_FILESIZE:
+                continue
+
+            best, lo, hi = floor, min_q, quality
+            while hi - lo > 4:
+                mid = (lo + hi) // 2
+                buf = encode(mid, fps, size)
+                if len(buf) <= MAX_STICKER_FILESIZE:
+                    best, lo = buf, mid
+                else:
+                    hi = mid
+            return best
+
+        return self.cv_to_webp(
+            animated=requested_animated,
+            enforce_not_broken=True,
+            animated_gif=animated_gif,
+            max_sticker_size=max_sticker_size,
+            is_webm=is_webm,
+            quality=quality,
+            compression_level=compression_level,
+            enforce_full_duration=False,
+            trim=trim,
+        )
 
     def call(self, cmd: list[str]):
         popen = subprocess.Popen(
