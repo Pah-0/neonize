@@ -1165,12 +1165,12 @@ class FFmpeg:
             ]
         )
 
-    def trim_audio(self, duration: int) -> bytes:
+    def trim_audio(self, duration: float) -> bytes:
         """
         Trim audio to specified duration in seconds.
 
         :param duration: Duration in seconds to trim to.
-        :type duration: int
+        :type duration: float
         :return: Trimmed audio bytes in original format.
         :rtype: bytes
         """

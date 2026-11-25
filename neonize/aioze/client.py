@@ -2213,7 +2213,7 @@ class NewAClient:
 
         audio_bytes = await get_bytes_from_name_or_url_async(audio)
         async with AFFmpeg(audio_bytes) as ff:
-            ogg = await ff.trim_audio(int(max_seconds))
+            ogg = await ff.trim_audio(max_seconds)
             waveform, seconds = await ff.waveform(int(max_seconds))
         up = await self.upload(ogg)
 

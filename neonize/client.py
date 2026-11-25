@@ -2152,7 +2152,7 @@ class NewClient:
 
         audio_bytes = get_bytes_from_name_or_url(audio)
         with FFmpeg(audio_bytes) as ff:
-            ogg = ff.trim_audio(int(max_seconds))
+            ogg = ff.trim_audio(max_seconds)
             waveform, seconds = ff.waveform(int(max_seconds))
         up = self.upload(ogg)
 
