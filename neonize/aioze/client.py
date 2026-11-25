@@ -2119,7 +2119,7 @@ class NewAClient:
             passthrough,
         )
         sm = sticker_message.stickerMessage
-        max_seconds = 6 if sm.isAnimated else 10
+        max_seconds = 10  # 6 if sm.isAnimated else 10
         now = int(time.time())
 
         audio_bytes = await get_bytes_from_name_or_url_async(audio)

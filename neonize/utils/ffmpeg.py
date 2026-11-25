@@ -272,7 +272,7 @@ class AFFmpeg:
         """
         Converts the input media to a 512x512 webp sticker using ffmpeg.
 
-        Animated output is limited to 6 seconds. Sources shorter than 6 seconds are
+        Animated output is limited to 10 seconds. Sources shorter than 10 seconds are
         converted as a static sticker unless ``enforce_full_duration`` is used, in
         which case the full clip is kept (see below).
 
@@ -291,8 +291,8 @@ class AFFmpeg:
         ``enforce_full_duration=False`` and ``enforce_not_broken=True``.
         Takes precedence over ``enforce_not_broken``.
 
-        :param animated: If True, only the first 6 seconds of the input are converted.
-            Forced to False for sources shorter than 6 seconds (unless
+        :param animated: If True, only the first 10 seconds of the input are converted.
+            Forced to False for sources shorter than 10 seconds (unless
             ``enforce_full_duration`` is set and the source is long enough to trim),
             defaults to True.
         :type animated: bool, optional
@@ -316,7 +316,7 @@ class AFFmpeg:
         :param compression_level: webp compression level, 1-6. Higher is smaller but
             slower, defaults to 4.
         :type compression_level: int, optional
-        :param enforce_full_duration: Keep the full allowed duration (6 seconds, or
+        :param enforce_full_duration: Keep the full allowed duration (10 seconds, or
             the whole clip if it is shorter) by reducing quality, fps and scale
             instead of cutting the animation. See above for the fallback,
             defaults to False.
@@ -329,7 +329,7 @@ class AFFmpeg:
         :rtype: bytes
         """
         MAX_STICKER_FILESIZE = max_sticker_size or 512000
-        MAX_SECONDS = 6
+        MAX_SECONDS = 10
         requested_animated = animated  # kept for the fallback call
 
         info = await self.extract_info()
@@ -340,7 +340,7 @@ class AFFmpeg:
         elif duration < MAX_SECONDS:
             animated = False
         if enforce_full_duration and source_duration > MAX_SECONDS:
-            animated = True  # always trim long sources to 6s
+            animated = True  # always trim long sources to 10s
             duration = MAX_SECONDS
 
         decoder: list[str] = []
@@ -351,7 +351,7 @@ class AFFmpeg:
         def build_cmd(out: str, q: int, fps: int, size: int, limit: bool) -> list[str]:
             cmd = ["ffmpeg", *decoder, "-i", self.filepath]
             if animated:
-                cmd += ["-ss", "00:00:00.0", "-t", "00:00:06.0"]
+                cmd += ["-ss", "00:00:00.0", "-t", "00:00:10.0"]
             cmd += [
                 "-vcodec",
                 "libwebp_anim" if animated_gif else "libwebp",
