@@ -127,6 +127,10 @@ All notable changes to this project are documented in this file.
 
 <!-- version list -->
 
+## v0.1.0 (2026-11-25)
+
+- Initial Release
+
 ## v0.12.4 (2026-11-20)
 
 ### Continuous Integration
