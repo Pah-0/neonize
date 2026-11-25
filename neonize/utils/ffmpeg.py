@@ -775,9 +775,7 @@ class AFFmpeg:
         )
         streams: list[dict] = data["streams"]
         format: dict = data["format"]
-        fmt = Format(
-            **{i: format.get(i, None) for i, _ in Format.__dataclass_fields__.items()}
-        )
+        fmt = Format(**{i: format.get(i, None) for i, _ in Format.__dataclass_fields__.items()})
         try:
             has_duration = float(fmt.duration or 0) > 0
         except (TypeError, ValueError):
@@ -1344,9 +1342,7 @@ class FFmpeg:
         )
         streams: list[dict] = data["streams"]
         format: dict = data["format"]
-        fmt = Format(
-            **{i: format.get(i, None) for i, _ in Format.__dataclass_fields__.items()}
-        )
+        fmt = Format(**{i: format.get(i, None) for i, _ in Format.__dataclass_fields__.items()})
         try:
             has_duration = float(fmt.duration or 0) > 0
         except (TypeError, ValueError):
