@@ -1,6 +1,8 @@
+import array
 import asyncio
 import json
 import logging
+import math
 import os
 import shlex
 import shutil
@@ -563,6 +565,54 @@ class AFFmpeg:
         finally:
             if os.path.exists(temp):
                 os.remove(temp)
+
+    async def waveform(self, duration: int, n: int = 64) -> tuple[bytes, int]:
+        """
+        Compute a WhatsApp-style waveform (n values, 0-100) and the real
+        length in whole seconds for the first `duration` seconds of the audio.
+        """
+        temp = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.pcm")
+        try:
+            await self.call(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    self.filepath,
+                    "-t",
+                    str(duration),
+                    "-vn",
+                    "-f",
+                    "s16le",  # raw 16-bit PCM
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "8000",  # low rate is plenty for a waveform
+                    temp,
+                ]
+            )
+            with open(temp, "rb") as file:
+                pcm = file.read()
+        finally:
+            if os.path.exists(temp):
+                os.remove(temp)
+    
+        samples = array.array("h")
+        samples.frombytes(pcm[: len(pcm) // 2 * 2])
+        if not samples:
+            raise ValueError("ffmpeg produced no audio samples")
+    
+        seconds = min(duration, max(1, round(len(samples) / 8000)))
+        if len(samples) < n:
+            return bytes(n), seconds
+    
+        step = len(samples) // n
+        rms = [
+            math.sqrt(sum(x * x for x in samples[i * step : (i + 1) * step]) / step)
+            for i in range(n)
+        ]
+        peak = max(rms) or 1
+        return bytes(int(r / peak * 100) for r in rms), seconds
 
     async def extract_info(self) -> FFProbeInfo:
         """
