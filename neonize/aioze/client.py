@@ -1163,6 +1163,7 @@ class NewAClient:
         compression_level: int = 4,
         enforce_full_duration: bool = False,
         min_quality: int = 30,
+        trim: float = 0,
         passthrough: bool = False,
     ) -> Message:
         """
@@ -1232,6 +1233,7 @@ class NewAClient:
                 compression_level,
                 enforce_full_duration,
                 min_quality,
+                trim,
             )
             if saved_exif:
                 io_save = BytesIO(sticker)
@@ -1284,6 +1286,7 @@ class NewAClient:
         compression_level: int = 4,
         enforce_full_duration: bool = False,
         min_quality: int = 30,
+        trim: float = 0,
         passthrough: bool = False,
         add_msg_secret: bool = False,
     ) -> SendResponse:
@@ -1329,6 +1332,9 @@ class NewAClient:
                 animated_gif,
                 quality,
                 compression_level,
+                enforce_full_duration,
+                min_quality,
+                trim,
                 passthrough,
             ),
             add_msg_secret=add_msg_secret,
@@ -2066,23 +2072,25 @@ class NewAClient:
         compression_level: int = 4,
         enforce_full_duration: bool = False,
         min_quality: int = 30,
+        trim: float = 0,
         passthrough: bool = False,
+        truncate_audio_to_match_sticker: bool = False,
     ) -> Message:
         """
-        Builds an audio sticker message from a given image/audio file or bytes.
+        Builds an audio sticker message from an image/video file and an audio file.
 
-        The function first builds a sticker message from the ``file`` parameter
-        (the image), then builds an audio message from the ``audio`` parameter
-        (the audio file). The audio is truncated to 5 seconds if animated or
-        10 seconds if static. The resulting StickerMessage wraps an AudioMessage
-        in its ``oneof audio`` field, and the whole thing is wrapped in an
-        ``audioStickerMessage`` (FutureProofMessage).
+        The sticker is built from ``file`` first, then the audio is trimmed and
+        encoded as Ogg/Opus, uploaded, and attached to the sticker. The audio is
+        limited to 10 seconds, or to the sticker's length when
+        ``truncate_audio_to_match_sticker`` is set. The result is an
+        ``audioStickerMessage`` (FutureProofMessage) wrapping a ``StickerMessage``
+        that carries the ``AudioMessage``.
 
-        :param file: The image file path, URL, or binary data for the sticker.
+        :param file: The image/video file path, URL, or binary data for the sticker.
         :type file: str | bytes
-        :param audio: The audio file path, URL, or binary data for the audio message.
+        :param audio: The audio file path, URL, or binary data.
         :type audio: str | bytes
-        :param quoted: A message that the audio sticker is a reply to, defaults to None.
+        :param quoted: A message this audio sticker replies to, defaults to None.
         :type quoted: Optional[neonize_proto.Message], optional
         :param name: The name of the sticker, defaults to "".
         :type name: str, optional
@@ -2090,37 +2098,64 @@ class NewAClient:
         :type packname: str, optional
         :param crop: Crop-center the image, defaults to False.
         :type crop: bool, optional
-        :param enforce_not_broken: Enforce non-broken stickers by constraining sticker size to WA limits, defaults to False.
+        :param enforce_not_broken: Constrain the sticker size to WhatsApp limits.
+            May cut animations short, defaults to False.
         :type enforce_not_broken: bool, optional
-        :param animated_gif: Ensure transparent media are properly processed, defaults to False.
+        :param animated_gif: Make sure transparent media are processed properly,
+            defaults to False.
         :type animated_gif: bool, optional
-        :param quality: Directly set sticker quality, ranges from 0-100, defaults to 75.
+        :param quality: Sticker quality, 0-100, defaults to 75.
         :type quality: int, optional
-        :param compression_level: Directly set sticker processor compression_level, ranges from 1-6, defaults to 4.
+        :param compression_level: Sticker compression level, 1-6, defaults to 4.
         :type compression_level: int, optional
-        :param passthrough: Don't process sticker, send as is, defaults to False.
+        :param enforce_full_duration: Keep the full sticker duration by lowering
+            quality, fps and scale instead of cutting the animation, defaults to False.
+        :type enforce_full_duration: bool, optional
+        :param min_quality: Lowest quality tried by ``enforce_full_duration``,
+            defaults to 30.
+        :type min_quality: int, optional
+        :param trim: Only use the first ``trim`` seconds of the sticker source
+            (clamped to the maximum). 0 means no trim. Ignored when ``passthrough``
+            is set, defaults to 0.
+        :type trim: float, optional
+        :param passthrough: Don't process the sticker, send it as is. ``trim`` is
+            ignored in this mode, defaults to False.
         :type passthrough: bool, optional
+        :param truncate_audio_to_match_sticker: For animated stickers, cut the audio
+            to the sticker's length (after ``trim``), defaults to False.
+        :type truncate_audio_to_match_sticker: bool, optional
         :return: The constructed audio sticker message.
         :rtype: Message
         """
-        # Build the sticker message first.
+        # trim only applies to stickers we process ourselves
+        effective_trim = 0 if passthrough else trim
+
         sticker_message = await self.build_sticker_message(
             file,
             None,
-            name,
-            packname,
-            crop,
-            enforce_not_broken,
-            animated_gif,
-            quality,
-            compression_level,
-            enforce_full_duration,
-            min_quality,
-            passthrough,
+            name=name,
+            packname=packname,
+            crop=crop,
+            enforce_not_broken=enforce_not_broken,
+            animated_gif=animated_gif,
+            quality=quality,
+            compression_level=compression_level,
+            enforce_full_duration=enforce_full_duration,
+            min_quality=min_quality,
+            trim=effective_trim,
+            passthrough=passthrough,
         )
         sm = sticker_message.stickerMessage
-        max_seconds = 10  # 6 if sm.isAnimated else 10
+        max_seconds = 10.0
         now = int(time.time())
+
+        if truncate_audio_to_match_sticker and sm.isAnimated:
+            async with AFFmpeg(file) as ffmpeg:
+                duration = float((await ffmpeg.extract_info()).format.duration or 0)
+            if effective_trim > 0:
+                duration = min(duration, effective_trim) if duration else effective_trim
+            if duration > 0:
+                max_seconds = min(duration, max_seconds)
 
         audio_bytes = await get_bytes_from_name_or_url_async(audio)
         async with AFFmpeg(audio_bytes) as ff:
@@ -2137,7 +2172,7 @@ class NewAClient:
             mediaKey=up.MediaKey,
             mediaKeyTimestamp=now,
             mimetype="audio/ogg; codecs=opus",
-            seconds=min(seconds, max_seconds),
+            seconds=seconds,  # already an int from waveform()
             PTT=False,
             waveform=waveform,
         )
@@ -2178,7 +2213,9 @@ class NewAClient:
         compression_level: int = 4,
         enforce_full_duration: bool = True,
         min_quality: int = 30,
+        trim: float = 0.0,
         passthrough: bool = False,
+        truncate_audio_to_match_sticker: bool = False,
         add_msg_secret: bool = False,
     ) -> SendResponse:
         """
@@ -2235,7 +2272,9 @@ class NewAClient:
                 compression_level,
                 enforce_full_duration,
                 min_quality,
+                trim,
                 passthrough,
+                truncate_audio_to_match_sticker,
             ),
             add_msg_secret=add_msg_secret,
         )

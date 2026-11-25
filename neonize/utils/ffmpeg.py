@@ -268,13 +268,13 @@ class AFFmpeg:
         compression_level: int = 4,
         enforce_full_duration: bool = False,
         min_quality: int = 30,
+        trim: float = 0,
     ) -> bytes:
         """
         Converts the input media to a 512x512 webp sticker using ffmpeg.
 
-        Animated output is limited to 10 seconds. Sources shorter than 10 seconds are
-        converted as a static sticker unless ``enforce_full_duration`` is used, in
-        which case the full clip is kept (see below).
+        Animated output is limited to 10 seconds. Longer sources are cut to 10
+        seconds, and shorter sources are kept whole unless ``trim`` says otherwise.
 
         Size handling has three modes:
 
@@ -284,12 +284,12 @@ class AFFmpeg:
         the size limit (``-fs``). The file is always small enough, but animations
         can be cut off before the end.
         * ``enforce_full_duration=True``: never lets ffmpeg truncate the file. It
-        encodes the full allowed duration and shrinks the file to fit by lowering
-        quality (down to ``min_quality``), then fps, then content scale. If no
-        combination fits, it falls back to the ``enforce_not_broken`` behaviour
-        (size-limited, possibly truncated) by calling itself with
-        ``enforce_full_duration=False`` and ``enforce_not_broken=True``.
-        Takes precedence over ``enforce_not_broken``.
+        encodes the full allowed duration (after ``trim``, if set) and shrinks the
+        file to fit by lowering quality (down to ``min_quality``), then fps, then
+        content scale. If no combination fits, it falls back to the
+        ``enforce_not_broken`` behaviour (size-limited, possibly truncated) by
+        calling itself with ``enforce_full_duration=False`` and
+        ``enforce_not_broken=True``. Takes precedence over ``enforce_not_broken``.
 
         :param animated: If True, only the first 10 seconds of the input are converted.
             Forced to False for sources shorter than 10 seconds (unless
@@ -317,20 +317,26 @@ class AFFmpeg:
             slower, defaults to 4.
         :type compression_level: int, optional
         :param enforce_full_duration: Keep the full allowed duration (10 seconds, or
-            the whole clip if it is shorter) by reducing quality, fps and scale
-            instead of cutting the animation. See above for the fallback,
-            defaults to False.
+            the whole clip if it is shorter, or ``trim`` if set) by reducing quality,
+            fps and scale instead of cutting the animation. See above for the
+            fallback, defaults to False.
         :type enforce_full_duration: bool, optional
         :param min_quality: Lowest quality tried before fps and scale are reduced.
             Only used with ``enforce_full_duration``. If it is higher than
             ``quality``, ``quality`` is used instead, defaults to 30.
         :type min_quality: int, optional
+        :param trim: Only convert the first ``trim`` seconds of the input. Values
+            above the 10 second maximum are clamped to 10. Ignored if it is not
+            shorter than the source. 0 (or a negative value) means no trim,
+            defaults to 0.
+        :type trim: float, optional
         :return: The converted webp file as bytes.
         :rtype: bytes
         """
         MAX_STICKER_FILESIZE = max_sticker_size or 512000
         MAX_SECONDS = 10
         requested_animated = animated  # kept for the fallback call
+        trim_seconds = min(trim, MAX_SECONDS) if trim > 0 else 0
 
         info = await self.extract_info()
         source_duration = float(info.format.duration or 0)
@@ -343,6 +349,12 @@ class AFFmpeg:
             animated = True  # always trim long sources to 10s
             duration = MAX_SECONDS
 
+        clip_seconds: float = MAX_SECONDS  # value passed to ffmpeg's -t
+        if trim_seconds and (not source_duration or trim_seconds < source_duration):
+            animated = True  # makes sure -t is applied, even for short sources
+            clip_seconds = trim_seconds
+            duration = max(1, int(trim_seconds))  # used for the bitrate hint
+
         decoder: list[str] = []
         if is_webm:
             codec = info.streams[0].codec_name
@@ -351,7 +363,7 @@ class AFFmpeg:
         def build_cmd(out: str, q: int, fps: int, size: int, limit: bool) -> list[str]:
             cmd = ["ffmpeg", *decoder, "-i", self.filepath]
             if animated:
-                cmd += ["-ss", "00:00:00.0", "-t", "00:00:10.0"]
+                cmd += ["-ss", "00:00:00.0", "-t", f"{clip_seconds:g}"]
             cmd += [
                 "-vcodec",
                 "libwebp_anim" if animated_gif else "libwebp",
@@ -430,6 +442,7 @@ class AFFmpeg:
             quality=quality,
             compression_level=compression_level,
             enforce_full_duration=False,
+            trim=trim,
         )
 
     async def call(self, cmd: list[str]):
@@ -613,11 +626,19 @@ class AFFmpeg:
             ]
         )
 
-    async def trim_audio(self, duration: int) -> bytes:
+    async def trim_audio(self, duration: float) -> bytes:
         """
         Trim audio to the given duration and encode as Ogg/Opus
         (the format WhatsApp uses for audio messages).
+
+        :param duration: Duration in seconds to trim to. Fractions are allowed
+            (for example ``2.5``). Must be greater than 0.
+        :type duration: float
+        :return: The trimmed audio as Ogg/Opus bytes.
+        :rtype: bytes
         """
+        if duration <= 0:
+            raise ValueError("duration must be greater than 0")
         temp = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.ogg")
         try:
             await self.call(
@@ -627,7 +648,7 @@ class AFFmpeg:
                     "-i",
                     self.filepath,
                     "-t",
-                    str(duration),
+                    f"{duration:.3f}",
                     "-vn",  # drop any cover art / video stream
                     "-map_metadata",
                     "-1",  # strip tags
