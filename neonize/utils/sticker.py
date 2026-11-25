@@ -220,6 +220,9 @@ async def aio_convert_to_webp(
     transparent=False,
     quality=75,
     compression_level=4,
+    enforce_full_duration=False,
+    min_quality=30,
+    trim: float = 0,
 ):
     sticker = await get_bytes_from_name_or_url_async(sticker)
     animated = is_webm = is_image = saved_exif = stk = False
@@ -255,6 +258,9 @@ async def aio_convert_to_webp(
                 is_webm=is_webm,
                 quality=quality,
                 compression_level=compression_level,
+                enforce_full_duration=enforce_full_duration,
+                min_quality=min_quality,
+                trim=trim,
             )
         if saved_exif:
             io_save = BytesIO(sticker)
@@ -284,6 +290,9 @@ def convert_to_webp(
     transparent=False,
     quality=75,
     compression_level=4,
+    enforce_full_duration=False,
+    min_quality=30,
+    trim: float = 0,
 ):
     sticker = get_bytes_from_name_or_url(sticker)
     animated = is_webm = is_image = saved_exif = stk = False
@@ -319,6 +328,9 @@ def convert_to_webp(
                 is_webm=is_webm,
                 quality=quality,
                 compression_level=compression_level,
+                enforce_full_duration=enforce_full_duration,
+                min_quality=min_quality,
+                trim=trim,
             )
         if saved_exif:
             io_save = BytesIO(sticker)

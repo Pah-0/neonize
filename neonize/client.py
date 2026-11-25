@@ -1403,6 +1403,9 @@ class NewClient:
         animated_gif: bool = False,
         quality: int = 75,
         compression_level: int = 4,
+        enforce_full_duration: bool = False,
+        min_quality: int = 30,
+        trim: float = 0,
         passthrough: bool = False,
     ) -> list[Message]:
         """Builds a list of sticker-pack messages from image or video files.
@@ -1438,6 +1441,9 @@ class NewClient:
             transparent=animated_gif,
             quality=quality,
             compression_level=compression_level,
+            enforce_full_duration=enforce_full_duration,
+            min_quality=min_quality,
+            trim=trim,
         )
 
         def ensure_non_broken_packs(stickers):
@@ -1479,6 +1485,9 @@ class NewClient:
         animated_gif: bool = False,
         quality: int = 75,
         compression_level: int = 4,
+        enforce_full_duration: bool = False,
+        min_quality: int = 30,
+        trim: float = 0,
         passthrough: bool = False,
         add_msg_secret: bool = False,
     ) -> list[SendResponse]:
@@ -1518,6 +1527,9 @@ class NewClient:
             animated_gif,
             quality,
             compression_level,
+            enforce_full_duration,
+            min_quality,
+            trim,
             passthrough,
         )
         for msg in msgs:

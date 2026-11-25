@@ -1460,6 +1460,9 @@ class NewAClient:
         animated_gif: bool = False,
         quality: int = 75,
         compression_level: int = 4,
+        enforce_full_duration: bool = False,
+        min_quality: int = 30,
+        trim: float = 0,
         passthrough: bool = False,
     ) -> list[Message]:
         """Builds a list of sticker-pack messages from image or video files.
@@ -1496,6 +1499,9 @@ class NewAClient:
                 animated_gif,
                 quality,
                 compression_level,
+                enforce_full_duration,
+                min_quality,
+                trim,
             )
             for file in files
         ]
@@ -1534,6 +1540,9 @@ class NewAClient:
         animated_gif: bool = False,
         quality: int = 75,
         compression_level: int = 4,
+        enforce_full_duration: bool = False,
+        min_quality: int = 30,
+        trim: float = 0,
         passthrough: bool = False,
         add_msg_secret: bool = False,
     ) -> list[SendResponse]:
@@ -1573,6 +1582,9 @@ class NewAClient:
             animated_gif,
             quality,
             compression_level,
+            enforce_full_duration,
+            min_quality,
+            trim,
             passthrough,
         )
         for msg in msgs:
