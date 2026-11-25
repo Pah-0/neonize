@@ -596,16 +596,16 @@ class AFFmpeg:
         finally:
             if os.path.exists(temp):
                 os.remove(temp)
-    
+
         samples = array.array("h")
         samples.frombytes(pcm[: len(pcm) // 2 * 2])
         if not samples:
             raise ValueError("ffmpeg produced no audio samples")
-    
+
         seconds = min(duration, max(1, round(len(samples) / 8000)))
         if len(samples) < n:
             return bytes(n), seconds
-    
+
         step = len(samples) // n
         rms = [
             math.sqrt(sum(x * x for x in samples[i * step : (i + 1) * step]) / step)
@@ -1005,6 +1005,50 @@ class FFmpeg:
             if os.path.exists(temp):
                 os.remove(temp)
         return buf
+
+    def waveform(self, duration: int, n: int = 64) -> tuple[bytes, int]:
+        temp = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.pcm")
+        try:
+            self.call(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    self.filepath,
+                    "-t",
+                    str(duration),
+                    "-vn",
+                    "-f",
+                    "s16le",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "8000",
+                    temp,
+                ]
+            )
+            with open(temp, "rb") as file:
+                pcm = file.read()
+        finally:
+            if os.path.exists(temp):
+                os.remove(temp)
+
+        samples = array.array("h")
+        samples.frombytes(pcm[: len(pcm) // 2 * 2])
+        if not samples:
+            raise ValueError("ffmpeg produced no audio samples")
+
+        seconds = min(duration, max(1, round(len(samples) / 8000)))
+        if len(samples) < n:
+            return bytes(n), seconds
+
+        step = len(samples) // n
+        rms = [
+            math.sqrt(sum(x * x for x in samples[i * step : (i + 1) * step]) / step)
+            for i in range(n)
+        ]
+        peak = max(rms) or 1
+        return bytes(int(r / peak * 100) for r in rms), seconds
 
     def extract_info(self) -> FFProbeInfo:
         """

@@ -2097,8 +2097,16 @@ class NewAClient:
         """
         # Build the sticker message first.
         sticker_message = await self.build_sticker_message(
-            file, None, name, packname, crop, enforce_not_broken,
-            animated_gif, quality, compression_level, passthrough,
+            file,
+            None,
+            name,
+            packname,
+            crop,
+            enforce_not_broken,
+            animated_gif,
+            quality,
+            compression_level,
+            passthrough,
         )
         sm = sticker_message.stickerMessage
         max_seconds = 5 if sm.isAnimated else 10
@@ -2143,11 +2151,7 @@ class NewAClient:
         if quoted:  # after mediaDomainInfo is set
             stk.contextInfo.MergeFrom(self._make_quoted_message(quoted))
 
-        return Message(
-            audioStickerMessage=FutureProofMessage(
-                message=Message(stickerMessage=stk)
-            )
-        )
+        return Message(audioStickerMessage=FutureProofMessage(message=Message(stickerMessage=stk)))
 
     async def send_audio_sticker(
         self,
