@@ -2095,73 +2095,59 @@ class NewAClient:
         :return: The constructed audio sticker message.
         :rtype: Message
         """
-        # Build the sticker message first
+        # Build the sticker message first.
         sticker_message = await self.build_sticker_message(
-            file,
-            None,
-            name,
-            packname,
-            crop,
-            enforce_not_broken,
-            animated_gif,
-            quality,
-            compression_level,
-            passthrough,
+            file, None, name, packname, crop, enforce_not_broken,
+            animated_gif, quality, compression_level, passthrough,
         )
-        is_animated = sticker_message.stickerMessage.isAnimated
-        max_seconds = 5 if is_animated else 10
-
+        sm = sticker_message.stickerMessage
+        max_seconds = 5 if sm.isAnimated else 10
         now = int(time.time())
 
-        # Trim the audio
-        audio_io = BytesIO(await get_bytes_from_name_or_url_async(audio))
-        audio_io.seek(0)
-        audio_buff = audio_io.read()
-        async with AFFmpeg(audio_buff) as ffmpeg:
-            trimmed_audio = await ffmpeg.trim_audio(max_seconds)
-        upload_audio = await self.upload(trimmed_audio)
+        audio_bytes = await get_bytes_from_name_or_url_async(audio)
+        async with AFFmpeg(src) as ff:
+            ogg = await ff.trim_audio(max_seconds)
+        waveform, seconds = await _waveform_and_seconds(ogg)
+        up = await self.upload(ogg)
 
         audio_msg = AudioMessage(
-            URL=upload_audio.url,
-            seconds=max_seconds,
-            directPath=upload_audio.DirectPath,
-            fileEncSHA256=upload_audio.FileEncSHA256,
-            fileLength=upload_audio.FileLength,
-            fileSHA256=upload_audio.FileSHA256,
-            mediaKey=upload_audio.MediaKey,
+            URL=up.url,
+            directPath=up.DirectPath,
+            fileEncSHA256=up.FileEncSHA256,
+            fileLength=up.FileLength,
+            fileSHA256=up.FileSHA256,
+            mediaKey=up.MediaKey,
             mediaKeyTimestamp=now,
-            mimetype=magic.from_buffer(trimmed_audio, mime=True),
+            mimetype="audio/ogg; codecs=opus",
+            seconds=min(seconds, max_seconds),
             PTT=False,
-            waveform=bytes([50] * 64),
+            waveform=waveform,
         )
         audio_msg.contextInfo.mediaDomainInfo.mediaKeyDomain = MediaKeyDomain.MEDIA_KEY_DOMAIN_E2EE
-        audio_msg.contextInfo.mediaDomainInfo.e2EeMediaKey = upload_audio.MediaKey
+        audio_msg.contextInfo.mediaDomainInfo.e2EeMediaKey = up.MediaKey
 
         stk = StickerMessage()
-        stk.CopyFrom(sticker_message.stickerMessage)
+        stk.CopyFrom(sm)
         stk.width = 512
         stk.height = 512
         stk.mediaKeyTimestamp = now
-        stk.stickerSentTS = now * 1000
+        stk.stickerSentTS = int(time.time() * 1000)
         stk.isAvatar = False
         stk.isAiSticker = False
         stk.isLottie = False
         stk.premium = 0
         stk.contextInfo.mediaDomainInfo.mediaKeyDomain = MediaKeyDomain.MEDIA_KEY_DOMAIN_E2EE
-        stk.contextInfo.mediaDomainInfo.e2EeMediaKey = sticker_message.stickerMessage.mediaKey
+        stk.contextInfo.mediaDomainInfo.e2EeMediaKey = sm.mediaKey
         stk.audioMessage.CopyFrom(audio_msg)
 
-        if quoted:
+        if quoted:  # after mediaDomainInfo is set
             stk.contextInfo.MergeFrom(self._make_quoted_message(quoted))
 
-        message = Message(
+        return Message(
             audioStickerMessage=FutureProofMessage(
-                message=Message(
-                    stickerMessage=stk,
-                )
+                message=Message(stickerMessage=stk)
             )
         )
-        return message
 
     async def send_audio_sticker(
         self,
