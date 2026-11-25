@@ -1427,6 +1427,16 @@ class NewClient:
         :type crop: bool, optional
         :param animated_gif: Whether to preserve transparency so animated stickers keep working. Defaults to False.
         :type animated_gif: bool, optional
+        :param enforce_full_duration: Keep the full sticker duration by lowering
+            quality, fps and scale instead of cutting the animation, defaults to False.
+        :type enforce_full_duration: bool, optional
+        :param min_quality: Lowest quality tried by ``enforce_full_duration``,
+            defaults to 30.
+        :type min_quality: int, optional
+        :param trim: Only use the first ``trim`` seconds of the sticker source
+            (clamped to the maximum). 0 means no trim. Ignored when ``passthrough``
+            is set, defaults to 0.
+        :type trim: float, optional
         :param passthrough: Whether to convert media without resizing. Defaults to False.
         :type passthrough: bool, optional
         :return: One ready-to-send message per sticker-pack chunk.
