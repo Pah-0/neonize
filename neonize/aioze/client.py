@@ -202,6 +202,7 @@ from ..utils.sticker import (
     aio_add_exif_to_sticker,
     aio_convert_to_sticker,
     aio_convert_to_webp,
+    webp_duration,
 )
 from . import events as _events_module
 from .events import Event, EventsManager
@@ -2204,8 +2205,12 @@ class NewAClient:
         now = int(time.time())
 
         if truncate_audio_to_match_sticker and sm.isAnimated:
-            async with AFFmpeg(file) as ffmpeg:
-                duration = float((await ffmpeg.extract_info()).format.duration or 0)
+            sticker_bytes = await get_bytes_from_name_or_url_async(file)
+            if magic.from_buffer(sticker_bytes[:2048], mime=True) == "image/webp":
+                duration = webp_duration(sticker_bytes)
+            else:
+                async with AFFmpeg(sticker_bytes) as ffmpeg:
+                    duration = float((await ffmpeg.extract_info()).format.duration or 0)
             if effective_trim > 0:
                 duration = min(duration, effective_trim) if duration else effective_trim
             if duration > 0:

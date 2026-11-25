@@ -204,7 +204,7 @@ from .utils.enum import (
 from .utils.ffmpeg import FFmpeg
 from .utils.iofile import get_bytes_from_name_or_url, prepare_zip_file_content
 from .utils.jid import Jid2String, JIDToNonAD, build_jid, jid_is_lid
-from .utils.sticker import add_exif_to_sticker, convert_to_sticker, convert_to_webp
+from .utils.sticker import add_exif_to_sticker, convert_to_sticker, convert_to_webp, webp_duration
 
 _log_ = logging.getLogger(__name__)
 
@@ -2143,8 +2143,12 @@ class NewClient:
         now = int(time.time())
 
         if truncate_audio_to_match_sticker and sm.isAnimated:
-            with FFmpeg(file) as ffmpeg:
-                duration = float((ffmpeg.extract_info()).format.duration or 0)
+            sticker_bytes = get_bytes_from_name_or_url(file)
+            if magic.from_buffer(sticker_bytes[:2048], mime=True) == "image/webp":
+                duration = webp_duration(sticker_bytes)
+            else:
+                with FFmpeg(sticker_bytes) as ffmpeg:
+                    duration = float((ffmpeg.extract_info()).format.duration or 0)
             if effective_trim > 0:
                 duration = min(duration, effective_trim) if duration else effective_trim
             if duration > 0:

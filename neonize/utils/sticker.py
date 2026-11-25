@@ -346,3 +346,20 @@ def convert_to_webp(
             loop=0,
         )
     return io_save.getvalue(), animated
+
+def webp_duration(data: bytes) -> float:
+    """Total animation length in seconds of an animated WebP, summed from the
+    ANMF frame chunks. Returns 0.0 for static WebP or non-WebP data."""
+    if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WEBP":
+        return 0.0
+    total_ms = 0
+    pos, end = 12, len(data)
+    while pos + 8 <= end:
+        tag = data[pos : pos + 4]
+        size = int.from_bytes(data[pos + 4 : pos + 8], "little")
+        body = pos + 8
+        if tag == b"ANMF" and size >= 16 and body + 16 <= end:
+            total_ms += int.from_bytes(data[body + 12 : body + 15], "little")
+        pos = body + size + (size & 1)
+    return total_ms / 1000
+
